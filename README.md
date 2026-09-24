@@ -13,6 +13,14 @@ identical**, with no hint that anything is gated.
 **Deploying for real?** See **[GUIDE.md](GUIDE.md)** — bare-metal installer, the four
 local/remote topologies, full config reference, TLS, credential ops, and hardening.
 
+## Demo
+
+![Laundry in action — the same URL shows a decoy to everyone, and the hidden service only to a client with a valid pre-shared key](docs/laundry-demo.gif)
+
+Same address throughout: an anonymous visitor sees the decoy; supplying a valid
+pre-shared key silently reveals the hidden service — no login prompt, ever.
+[Higher-quality video (webm)](docs/laundry-demo.webm).
+
 ## How it works
 
 ```
