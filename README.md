@@ -122,6 +122,10 @@ docker compose run --rm gateway resty /opt/laundry/test/unit/run.lua
 docker compose --profile test up --build --abort-on-container-exit tests
 ```
 
+## Why's it called Laundry?
+
+Because it's designed to act as a 'front' where, from the outside, it looks innocuous until you find the Department of Existential Anthropic Threats (DEAT).
+
 ## Security notes & residual risks
 
 - **TLS is mandatory.** Basic auth is base64, not encryption. Port 80 only redirects.
