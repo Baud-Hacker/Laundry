@@ -1,0 +1,10 @@
+.git
+.github
+*.md
+deploy
+**/*.db
+**/*.db-wal
+**/*.db-shm
+**/*.log
+nginx/ssl
+shared

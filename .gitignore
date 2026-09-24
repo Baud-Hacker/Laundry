@@ -1,0 +1,11 @@
+# Runtime artifacts
+*.db
+*.db-wal
+*.db-shm
+*.log
+nginx/ssl/
+/shared/
+creds.env
+
+# Claude Code personal settings
+.claude/settings.local.json

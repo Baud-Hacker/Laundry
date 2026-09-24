@@ -1,0 +1,23 @@
+[Unit]
+Description=laundry silent Basic-auth gateway (OpenResty)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/laundry/laundry.env
+ExecStartPre=/usr/local/openresty/bin/openresty -t -q
+ExecStart=/usr/local/openresty/bin/openresty -g "daemon off;"
+ExecReload=/usr/local/openresty/bin/openresty -s reload
+KillSignal=SIGQUIT
+Restart=on-failure
+RestartSec=2
+
+# Light hardening. (Kept conservative so OpenResty's temp dirs under /usr keep
+# working out of the box; the guide notes how to tighten further.)
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+
+[Install]
+WantedBy=multi-user.target

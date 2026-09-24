@@ -1,0 +1,225 @@
+#!/usr/bin/env resty
+-- laundry — offline management of the laundry credential store.
+--
+-- Reuses the same crypto (libsodium) and sqlite (FFI) modules as the gate, so
+-- the psk_index it writes matches what the request path computes. Runs under
+-- `resty` (OpenResty CLI): no server, no network surface.
+--
+-- Needs LAUNDRY_SERVER_KEY (or LAUNDRY_SERVER_KEY_FILE) and LAUNDRY_DB in the env,
+-- exactly like the running gate.
+
+-- Make our lua/ modules importable regardless of CWD.
+do
+  local script = (arg and arg[0]) or ""
+  local dir = script:match("^(.*)/[^/]*$") or "."
+  package.path = table.concat({
+    dir .. "/../lua/?.lua",
+    "/opt/laundry/lua/?.lua",
+    os.getenv("LAUNDRY_LUA_PATH") or "",
+    package.path,
+  }, ";")
+end
+
+local config = require "config"
+local crypto = require "crypto"
+local sqlite = require "sqlite"
+
+local function die(msg)
+  io.stderr:write("error: " .. msg .. "\n")
+  os.exit(1)
+end
+
+-- Tiny --flag value parser. Returns positional[], flags{}.
+local function parse_args(argv)
+  local pos, flags = {}, {}
+  local i = 1
+  while argv[i] do
+    local a = argv[i]
+    local key = a:match("^%-%-(.+)$")
+    if key then
+      local eq = key:find("=")
+      if eq then
+        flags[key:sub(1, eq - 1)] = key:sub(eq + 1)
+      else
+        flags[key] = argv[i + 1]
+        i = i + 1
+      end
+    else
+      pos[#pos + 1] = a
+    end
+    i = i + 1
+  end
+  return pos, flags
+end
+
+local function open_db(cfg)
+  local db, err = sqlite.open(cfg.db_path)
+  if not db then die("cannot open db " .. cfg.db_path .. ": " .. err) end
+  return db
+end
+
+-- Commands ------------------------------------------------------------------
+
+local cmds = {}
+
+cmds["gen-key"] = function()
+  assert(crypto.init())
+  print(crypto.random_hex(32))
+  io.stderr:write("# put this in LAUNDRY_SERVER_KEY (or a file for LAUNDRY_SERVER_KEY_FILE)\n")
+end
+
+cmds["init-db"] = function(cfg)
+  local script = (arg and arg[0]) or ""
+  local dir = script:match("^(.*)/[^/]*$") or "."
+  local paths = { dir .. "/../db/schema.sql", "/opt/laundry/db/schema.sql" }
+  local sql
+  for _, p in ipairs(paths) do
+    local f = io.open(p, "rb")
+    if f then sql = f:read("*a"); f:close(); break end
+  end
+  if not sql then die("schema.sql not found") end
+  local db = open_db(cfg)
+  local ok, err = db:exec(sql)
+  db:close()
+  if not ok then die("schema apply failed: " .. err) end
+  print("db initialized at " .. cfg.db_path)
+end
+
+cmds["route"] = function(cfg, pos, flags)
+  local sub = pos[2]
+  local db = open_db(cfg)
+  if sub == "add" then
+    local name, kind, target = flags.name, flags.kind, flags.target
+    if not (name and kind and target) then
+      db:close(); die("route add needs --name --kind (upstream|internal) --target")
+    end
+    if kind ~= "upstream" and kind ~= "internal" then
+      db:close(); die("--kind must be 'upstream' or 'internal'")
+    end
+    local ok, err = db:exec(
+      "INSERT INTO routes (name, kind, target) VALUES (?, ?, ?)",
+      { name, kind, target })
+    db:close()
+    if not ok then die("route add failed: " .. err) end
+    print("route added: " .. name)
+  elseif sub == "list" then
+    local rows = db:query("SELECT id, name, kind, target FROM routes ORDER BY id")
+    db:close()
+    for _, r in ipairs(rows or {}) do
+      print(string.format("%s\t%s\t%s\t%s", r.id, r.name, r.kind, r.target))
+    end
+  else
+    db:close(); die("unknown route subcommand (use: add | list)")
+  end
+end
+
+cmds["add"] = function(cfg, pos, flags)
+  if not cfg.server_key then die("LAUNDRY_SERVER_KEY(_FILE) must be set to add creds") end
+  local device = flags.device
+  if not device then die("add needs --device <id>") end
+  assert(crypto.init())
+
+  local db = open_db(cfg)
+
+  local route_id = sqlite.NULL
+  local route_name = flags.route
+  if route_name then
+    local rows = db:query("SELECT id FROM routes WHERE name = ?", { route_name })
+    if not rows or not rows[1] then db:close(); die("no such route: " .. route_name) end
+    route_id = tonumber(rows[1].id)
+  end
+
+  local psk = crypto.random_hex(32) -- 256-bit, high entropy
+  local idx = crypto.keyed_blake2b(cfg.server_key, psk)
+  local verify = crypto.pwhash_str(psk)
+  if not verify then db:close(); die("argon2 hashing failed") end
+
+  local expires = sqlite.NULL
+  if flags.expires then
+    expires = os.time() + tonumber(flags.expires)
+  end
+
+  local ok, err = db:exec([[
+    INSERT INTO credentials
+      (psk_index, psk_verify, device_id, label, route_id, active, created_at, expires_at)
+    VALUES (?, ?, ?, ?, ?, 1, ?, ?)
+  ]], { idx, verify, device, flags.label or sqlite.NULL, route_id, os.time(), expires })
+  db:close()
+  if not ok then die("add failed: " .. err) end
+
+  -- The PSK is shown ONCE. Store nothing raw.
+  io.stderr:write("# credential created. Give the client these Basic-auth values:\n")
+  print("device_id: " .. device)
+  print("psk:       " .. psk)
+  io.stderr:write("# e.g.  curl -u '" .. device .. ":" .. psk .. "' https://host/\n")
+end
+
+cmds["list"] = function(cfg)
+  local db = open_db(cfg)
+  local rows = db:query([[
+    SELECT c.id, c.device_id, c.label, c.active, c.created_at, c.expires_at,
+           c.last_used_at, r.name AS route
+    FROM credentials c LEFT JOIN routes r ON r.id = c.route_id
+    ORDER BY c.id
+  ]])
+  db:close()
+  print("id\tdevice\troute\tactive\texpires\tlabel")
+  for _, r in ipairs(rows or {}) do
+    print(string.format("%s\t%s\t%s\t%s\t%s\t%s",
+      r.id, r.device_id, r.route or "-", r.active,
+      r.expires_at or "never", r.label or ""))
+  end
+end
+
+cmds["revoke"] = function(cfg, pos, flags)
+  local db = open_db(cfg)
+  local where, param
+  if flags.id then where, param = "id = ?", tonumber(flags.id)
+  elseif flags.device then where, param = "device_id = ?", flags.device
+  else db:close(); die("revoke needs --id <n> or --device <id>") end
+  local ok, err = db:exec("UPDATE credentials SET active = 0 WHERE " .. where, { param })
+  db:close()
+  if not ok then die("revoke failed: " .. err) end
+  print("revoked " .. where:gsub(" = %?", "=") .. tostring(param))
+end
+
+cmds["connections"] = function(cfg, pos, flags)
+  local db = open_db(cfg)
+  local limit = tonumber(flags.limit) or 50
+  local rows = db:query(
+    "SELECT ts, device_id, src_ip, route_name FROM connections ORDER BY id DESC LIMIT ?",
+    { limit })
+  db:close()
+  for _, r in ipairs(rows or {}) do
+    print(string.format("%s\t%s\t%s\t%s",
+      os.date("%Y-%m-%d %H:%M:%S", tonumber(r.ts)),
+      r.device_id, r.src_ip or "-", r.route_name or "-"))
+  end
+end
+
+local USAGE = [[
+laundry — laundry credential management
+
+  gen-key                                   print a fresh server_key (pepper)
+  init-db                                   create tables in LAUNDRY_DB
+  route add --name N --kind K --target T    add a route (K = upstream|internal)
+  route list                                list routes
+  add --device ID [--route N] [--label L] [--expires SECS]
+                                            mint a PSK for a device (printed once)
+  list                                      list credentials
+  revoke (--device ID | --id N)             deactivate a credential
+  connections [--limit N]                   recent successful connections
+
+Environment: LAUNDRY_DB, LAUNDRY_SERVER_KEY or LAUNDRY_SERVER_KEY_FILE
+]]
+
+-- Entry ---------------------------------------------------------------------
+
+local pos, flags = parse_args(arg)
+local cmd = pos[1]
+if not cmd or flags.help then io.write(USAGE); os.exit(cmd and 0 or 1) end
+
+local cfg = config.get()
+local fn = cmds[cmd]
+if not fn then die("unknown command: " .. cmd .. "\n\n" .. USAGE) end
+fn(cfg, pos, flags)

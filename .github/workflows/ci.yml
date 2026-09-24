@@ -1,0 +1,37 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: docker
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build gateway image
+        run: docker compose build gateway
+
+      - name: Unit tests (crypto / sqlite / routing)
+        run: docker compose run --rm --no-deps --entrypoint resty gateway /opt/laundry/test/unit/run.lua
+
+      - name: Start stack
+        run: |
+          docker compose up -d gateway decoy hidden
+          sleep 8
+
+      - name: Integration tests (black-box)
+        run: docker compose --profile test run --rm tests
+
+      - name: Dump logs on failure
+        if: failure()
+        run: docker compose logs
+
+      - name: Teardown
+        if: always()
+        run: docker compose down -v

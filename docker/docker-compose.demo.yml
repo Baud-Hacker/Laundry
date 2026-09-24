@@ -1,0 +1,45 @@
+# Self-contained demo you can run and poke at yourself.
+#
+#   decoy  = https://sencode.co.uk   (remote, proxied)   -> what anyone sees
+#   hidden = local page + a container -> shown only with a valid PSK
+#
+# Run:
+#   cd docker
+#   docker compose -f docker-compose.demo.yml -p laundry-demo up --build -d
+#   docker compose -f docker-compose.demo.yml -p laundry-demo exec gateway cat /shared/creds.env
+#
+# Then (self-signed cert, so -k):
+#   curl -k https://localhost:8443/                         # -> sencode.co.uk (decoy)
+#   curl -k -u 'dev-internal:<PSK>' https://localhost:8443/ # -> HIDDEN-SERVICE-OK
+services:
+  gateway:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    depends_on:
+      - hidden
+    environment:
+      LAUNDRY_DB: /etc/laundry/laundry.db
+      # Demo pepper — fine for local testing; use LAUNDRY_SERVER_KEY_FILE in prod.
+      LAUNDRY_SERVER_KEY: "demo-pepper-change-me-0123456789abcdef"
+      LAUNDRY_SERVER_HEADER: "nginx"
+      LAUNDRY_DECOY_KIND: "upstream"
+      LAUNDRY_DECOY_TARGET: "https://sencode.co.uk"
+      LAUNDRY_TIMING_FLOOR_MS: "40"
+      LAUNDRY_TIMING_JITTER_MS: "15"
+      LAUNDRY_SEED_TEST_CREDS: "1"
+    volumes:
+      - shared:/shared
+      - ../hidden:/var/www/hidden:ro
+    ports:
+      - "8080:80"
+      - "8443:443"
+
+  # Backend for the "upstream" hidden route (dev-upstream credential).
+  hidden:
+    image: nginx:alpine
+    volumes:
+      - ../hidden:/usr/share/nginx/html:ro
+
+volumes:
+  shared:
