@@ -12,6 +12,13 @@ local function getenv(name, default)
   return v
 end
 
+local function getbool(name, default)
+  local v = os.getenv(name)
+  if v == nil or v == "" then return default end
+  v = v:lower()
+  return not (v == "0" or v == "false" or v == "no" or v == "off")
+end
+
 local function read_file(path)
   local f = io.open(path, "rb")
   if not f then return nil end
@@ -49,6 +56,11 @@ function _M.get()
     -- floor_ms + random(0..jitter_ms) so hit/miss/malformed are indistinguishable.
     timing_floor_ms  = tonumber(getenv("LAUNDRY_TIMING_FLOOR_MS", "40")),
     timing_jitter_ms = tonumber(getenv("LAUNDRY_TIMING_JITTER_MS", "15")),
+    -- Strip the client Authorization header before proxying, so the PSK (hidden)
+    -- and failed creds (decoy) never reach the backend. Independent per path,
+    -- both strip by default; set the relevant flag to false to forward.
+    strip_auth_decoy  = getbool("LAUNDRY_STRIP_AUTH_DECOY", true),
+    strip_auth_hidden = getbool("LAUNDRY_STRIP_AUTH_HIDDEN", true),
   }
   return cache
 end

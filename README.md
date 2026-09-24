@@ -68,6 +68,8 @@ client ──TLS──> OpenResty  (Server: nginx/…, identical fingerprint)
 | `LAUNDRY_SERVER_HEADER` | `nginx` | spoofed `Server` header on every response |
 | `LAUNDRY_DECOY_KIND` | `internal` | `internal` (local `/var/www/decoy`) or `upstream` |
 | `LAUNDRY_DECOY_TARGET` | — | decoy URL when kind=upstream |
+| `LAUNDRY_STRIP_AUTH_DECOY` | `true` | strip `Authorization` before proxying to the decoy |
+| `LAUNDRY_STRIP_AUTH_HIDDEN` | `true` | strip `Authorization` before proxying to the hidden backend |
 | `LAUNDRY_REFRESH_INTERVAL` | `5` | seconds between cache reloads |
 | `LAUNDRY_FLUSH_INTERVAL` | `5` | seconds between write-flushes |
 | `LAUNDRY_TIMING_FLOOR_MS` | `40` | minimum per-request time |

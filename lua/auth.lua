@@ -57,12 +57,19 @@ local function url_host(u)
   return (u:gsub("^%a+://", "")):match("^([^/]+)")
 end
 
+-- What to forward as the upstream Authorization header: "" (nginx omits it) when
+-- stripping, else the client's original header.
+local function fwd_auth(strip)
+  return strip and "" or (ngx.var.http_authorization or "")
+end
+
 -- Resolve the decoy location, setting the upstream var when remote. Pure: it
 -- decides and returns a location name but never calls ngx.exec itself.
 local function decoy_location()
   if cfg and cfg.decoy_kind == "upstream" then
     ngx.var.decoy_upstream = cfg.decoy_target
     ngx.var.decoy_host = url_host(cfg.decoy_target) or ""
+    ngx.var.fwd_auth = fwd_auth((not cfg) or cfg.strip_auth_decoy)
     return "@decoy_upstream"
   end
   return "/__laundry_decoy" .. ngx.var.uri -- local content under /var/www/decoy
@@ -108,6 +115,7 @@ function _M.decide()
     return decoy_location()
   end
 
+  ngx.var.fwd_auth = fwd_auth(cfg.strip_auth_hidden)
   store.record_connection(cred.device_id, ngx.var.remote_addr, cred.route_name)
   return loc
 end

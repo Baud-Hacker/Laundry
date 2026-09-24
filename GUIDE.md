@@ -74,6 +74,8 @@ Loaded by systemd and inherited by nginx workers (declared with `env` in `nginx.
 | `LAUNDRY_SERVER_HEADER` | `nginx` | Spoofed `Server` header on every response |
 | `LAUNDRY_DECOY_KIND` | `internal` | `internal` (local `/var/www/decoy`) or `upstream` |
 | `LAUNDRY_DECOY_TARGET` | — | Decoy URL when kind=upstream (e.g. `http://decoy-host:80`) |
+| `LAUNDRY_STRIP_AUTH_DECOY` | `true` | strip `Authorization` before proxying to the decoy |
+| `LAUNDRY_STRIP_AUTH_HIDDEN` | `true` | strip `Authorization` before proxying to the hidden backend (PSK never reaches it) |
 | `LAUNDRY_TIMING_FLOOR_MS` | `40` | Minimum per-request time |
 | `LAUNDRY_TIMING_JITTER_MS` | `15` | Added random jitter |
 | `LAUNDRY_REFRESH_INTERVAL` | `5` | Seconds between credential-cache reloads |
