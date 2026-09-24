@@ -1,6 +1,6 @@
 # Self-contained demo you can run and poke at yourself.
 #
-#   decoy  = https://sencode.co.uk   (remote, proxied)   -> what anyone sees
+#   decoy  = https://example.com   (remote, proxied)   -> what anyone sees
 #   hidden = local page + a container -> shown only with a valid PSK
 #
 # Run:
@@ -9,7 +9,7 @@
 #   docker compose -f docker-compose.demo.yml -p laundry-demo exec gateway cat /shared/creds.env
 #
 # Then (self-signed cert, so -k):
-#   curl -k https://localhost:8443/                         # -> sencode.co.uk (decoy)
+#   curl -k https://localhost:8443/                         # -> example.com (decoy)
 #   curl -k -u 'dev-internal:<PSK>' https://localhost:8443/ # -> HIDDEN-SERVICE-OK
 services:
   gateway:
@@ -24,7 +24,7 @@ services:
       LAUNDRY_SERVER_KEY: "demo-pepper-change-me-0123456789abcdef"
       LAUNDRY_SERVER_HEADER: "nginx"
       LAUNDRY_DECOY_KIND: "upstream"
-      LAUNDRY_DECOY_TARGET: "https://sencode.co.uk"
+      LAUNDRY_DECOY_TARGET: "https://example.com"
       LAUNDRY_TIMING_FLOOR_MS: "40"
       LAUNDRY_TIMING_JITTER_MS: "15"
       LAUNDRY_SEED_TEST_CREDS: "1"
